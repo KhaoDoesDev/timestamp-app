@@ -14,7 +14,7 @@ export default defineConfig({
       includeAssets: ["icon.png"],
       manifest: {
         name: "Khao's Timestamp App",
-        short_name: "khaos-timestamp-app",
+        short_name: "Timestamp App",
         description: "A simple timestamp app by KhaoDoesDev.",
         icons: [
           {
