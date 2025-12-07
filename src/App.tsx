@@ -1,107 +1,94 @@
 import { useEffect, useRef, useState } from "react";
 
 export default function UtcClock() {
-  const [display, setDisplay] = useState<string>("Loading...");
-  const baseEpochRef = useRef<number | null>(null);
-  const baseOffsetRef = useRef<number>(performance.now());
+  const [display, setDisplay] = useState("Loading…");
 
-  const pad = (num: number, size: number) => num.toString().padStart(size, "0");
+  const baseUtcRef = useRef<number | null>(null);
+  const perfStartRef = useRef<number>(0);
 
-  const fetchUtcTime = async () => {
+  const pad = (num: number, size: number) => String(num).padStart(size, "0");
+
+  const syncUtc = async () => {
     try {
-      const res = await fetch(
-        "https://timeapi.io/api/Time/current/zone?timeZone=UTC"
-      );
-      const data = await res.json();
-      const { year, month, day, hour, minute, seconds, milliSeconds } = data;
+      const t0 = performance.now();
+      const res = await fetch("https://time.akamai.com/?iso");
+      const t1 = performance.now();
 
-      const date = Date.UTC(
-        year,
-        month - 1,
-        day,
-        hour,
-        minute,
-        seconds,
-        milliSeconds
-      );
-      baseEpochRef.current = date;
-      baseOffsetRef.current = performance.now();
+      const text = await res.text();
+      const akamaiUtc = new Date(text).getTime();
+
+      const latency = (t1 - t0) / 2;
+      const correctedAkamai = akamaiUtc + latency;
+
+      baseUtcRef.current = correctedAkamai;
+      perfStartRef.current = performance.now();
     } catch (err) {
-      console.error("Failed to fetch UTC time:", err);
-      const now = Date.now();
-      baseEpochRef.current = now;
-      baseOffsetRef.current = performance.now();
+      console.error("Akamai fetch failed, using local UTC:", err);
+
+      baseUtcRef.current = Date.now();
+      perfStartRef.current = performance.now();
     }
   };
 
   useEffect(() => {
-    fetchUtcTime();
+    let tickId: number;
+    let syncId: NodeJS.Timeout;
 
-    const syncInterval = setInterval(() => {
-      fetchUtcTime();
-    }, 300000); // every 5 minutes
+    const start = async () => {
+      await syncUtc();
 
-    const tickInterval = setInterval(() => {
-      if (baseEpochRef.current === null) return;
+      syncId = setInterval(syncUtc, 5_000);
 
-      const elapsed = performance.now() - baseOffsetRef.current;
-      const now = new Date(baseEpochRef.current + elapsed);
+      const tick = () => {
+        if (baseUtcRef.current === null) {
+          tickId = requestAnimationFrame(tick);
+          return;
+        }
 
-      const year = now.getUTCFullYear();
-      const month = pad(now.getUTCMonth() + 1, 2);
-      const day = pad(now.getUTCDate(), 2);
-      const hours = pad(now.getUTCHours(), 2);
-      const minutes = pad(now.getUTCMinutes(), 2);
-      const seconds = pad(now.getUTCSeconds(), 2);
-      const millis = pad(now.getUTCMilliseconds(), 3);
+        const elapsed = performance.now() - perfStartRef.current;
+        const now = new Date(baseUtcRef.current + elapsed);
 
-      const formatted = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}:${millis}`;
-      setDisplay(formatted);
-    }, 10);
+        const formatted =
+          `${now.getUTCFullYear()}-` +
+          `${pad(now.getUTCMonth() + 1, 2)}-` +
+          `${pad(now.getUTCDate(), 2)} ` +
+          `${pad(now.getUTCHours(), 2)}:` +
+          `${pad(now.getUTCMinutes(), 2)}:` +
+          `${pad(now.getUTCSeconds(), 2)}:` +
+          `${pad(now.getUTCMilliseconds(), 3)}`;
+
+        setDisplay(formatted);
+
+        tickId = requestAnimationFrame(tick);
+      };
+
+      tick();
+    };
+
+    start();
 
     return () => {
-      clearInterval(syncInterval);
-      clearInterval(tickInterval);
+      cancelAnimationFrame(tickId);
+      clearInterval(syncId);
     };
   }, []);
 
   return (
-    <main className="flex flex-col items-center justify-between min-h-dvh p-8 container mx-auto">
-      <div className="flex flex-col w-full mb-4 text-center">
-        <h1 className="text-3xl md:text-5xl font-bold mb-2">
-          Khao's Live UTC Timestamp App
-        </h1>
-        <p>This app was used for keeping track of the UTC timestamp. Uses <a target="_blank" href="https://timeapi.io" className="text-blue-500 hover:text-blue-600 hover:underline">timeapi.io</a> for syncing.</p>
-      </div>
+    <main className="w-fit mx-auto p-8 flex flex-col min-h-dvh">
+      <h1 className="text-3xl md:text-5xl font-bold mb-4 text-center">
+        Khao's Live UTC Timestamp App
+      </h1>
 
-      <p className="text-sm md:text-base text-muted-foreground mb-4 text-center">
+      <p className="text-sm text-muted-foreground text-center mb-4">
         Format: YYYY-MM-DD HH:MM:SS:MS
       </p>
 
-      <div className="flex-1 flex items-center justify-center w-full">
-        <div className="text-4xl md:text-6xl font-mono tracking-widest text-center">
-          {display}
-        </div>
+      <div className="text-4xl md:text-6xl font-mono tracking-widest text-center my-auto">
+        {display}
       </div>
 
-      <footer className="text-sm text-muted-foreground mt-8 text-center">
-        <a
-          href="https://github.com/KhaoDoesDev/timestamp-app"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hover:underline"
-        >
-          View on GitHub
-        </a>
-        <span className="mx-2">•</span>
-        <a
-					href="https://www.khaodoes.dev/"
-					target="_blank"
-					rel="noopener noreferrer"
-					className="hover:underline"
-				>
-          Made with <span className="text-red-500">♥</span> by Khao
-        </a>
+      <footer>
+        <p className="text-center">Made by <a href="https://www.khaodoes.dev/" target="_blank" className="hover:underline text-blue-500">Khao</a></p>
       </footer>
     </main>
   );
